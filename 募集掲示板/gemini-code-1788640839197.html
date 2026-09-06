@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PSO2NGS クエスト募集</title>
+    <style>
+        :root {
+            --bg-dark: #0b0e14;
+            --panel-dark: #161b22;
+            --card-bg: #1c2128;
+            --border-color: #30363d;
+            --accent-blue: #38bdf8;
+            --text-main: #f0f6fc;
+            --text-sub: #8b949e;
+            --green: #2ea043;
+            --red: #da3633;
+            --input-bg: #21262d;
+        }
+
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+        }
+
+        .app-container {
+            display: flex;
+            width: 100%;
+            max-width: 1000px;
+        }
+
+        .sidebar {
+            width: 220px;
+            border-right: 1px solid var(--border-color);
+            padding: 20px 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            background-color: var(--bg-dark);
+            flex-shrink: 0;
+        }
+
+        .logo {
+            font-size: 18px;
+            font-weight: bold;
+            color: var(--accent-blue);
+            padding: 10px;
+        }
+
+        .nav-btn {
+            background: none;
+            border: none;
+            color: var(--text-main);
+            font-size: 16px;
+            font-weight: bold;
+            padding: 12px 15px;
+            border-radius: 9999px;
+            cursor: pointer;
+            text-align: left;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .nav-btn:hover, .nav-btn.active {
+            background-color: #21262d;
+            color: var(--accent-blue);
+        }
+
+        .post-btn {
+            background-color: #0284c7;
+            color: white;
+            border: none;
+            padding: 12px;
+            border-radius: 9999px;
+            font-weight: bold;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 10px;
+            width: 100%;
+        }
+        .post-btn:hover { background-color: #0369a1; }
+
+        .mobile-fab-btn {
+            display: none;
+            position: fixed;
+            bottom: 70px;
+            right: 20px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background-color: #0284c7;
+            color: white;
+            border: none;
+            font-size: 24px;
+            font-weight: bold;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            cursor: pointer;
+            z-index: 90;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .main-content {
+            flex-grow: 1;
+            border-right: 1px solid var(--border-color);
+            max-width: 600px;
+            min-height: 100vh;
+            padding-bottom: 60px;
+        }
+
+        .header-title {
+            position: sticky;
+            top: 0;
+            background-color: rgba(11, 14, 20, 0.9);
+            backdrop-filter: blur(12px);
+            padding: 15px;
+            font-size: 18px;
+            font-weight: bold;
+            border-bottom: 1px solid var(--border-color);
+            z-index: 10;
+        }
+
+        .tab-page { display: none; }
+        .tab-page.active { display: block; }
+
+        .card {
+            background-color: var(--card-bg);
+            border-bottom: 1px solid var(--border-color);
+            padding: 16px;
+            margin: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            color: #a3b3c2;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+
+        .card-title {
+            font-size: 17px;
+            font-weight: bold;
+            color: var(--accent-blue);
+            margin-bottom: 8px;
+        }
+
+        .card-body {
+            font-size: 14px;
+            margin-bottom: 12px;
+            line-height: 1.5;
+            color: #e6edf3;
+        }
+
+        .card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 1px solid var(--border-color);
+            padding-top: 10px;
+        }
+
+        .btn-join {
+            background-color: var(--green);
+            color: white;
+            border: none;
+            padding: 8px 18px;
+            border-radius: 9999px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .btn-join:disabled {
+            background-color: #485260;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .chat-container {
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 120px);
+        }
+
+        .chat-info {
+            background-color: var(--panel-dark);
+            padding: 12px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .chat-messages {
+            flex-grow: 1;
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background-color: var(--bg-dark);
+        }
+
+        .chat-input-area {
+            padding: 12px;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 10px;
+            background-color: var(--panel-dark);
+        }
+
+        .chat-input-area input {
+            flex-grow: 1;
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 9999px;
+        }
+
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.75);
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            padding: 10px;
+        }
+
+        .modal-body {
+            background-color: var(--panel-dark);
+            border: 1px solid var(--border-color);
+            width: 100%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            color: #a3b3c2;
+            margin-bottom: 6px;
+            font-weight: bold;
+        }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            background: var(--input-bg);
+            border: 1px solid var(--border-color);
+            color: white;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            color: var(--text-main) !important;
+        }
+
+        .checkbox-label input {
+            width: auto;
+            cursor: pointer;
+        }
+
+        .permission-box {
+            background: var(--panel-dark);
+            border: 1px solid var(--accent-blue);
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        @media screen and (max-width: 768px) {
+            .app-container { flex-direction: column; }
+            .main-content { max-width: 100%; border-right: none; }
+            .sidebar {
+                position: fixed;
+                bottom: 0; top: auto; left: 0;
+                width: 100%; height: 55px;
+                flex-direction: row;
+                justify-content: space-around;
+                align-items: center;
+                padding: 0; border-right: none;
+                border-top: 1px solid var(--border-color);
+                z-index: 80;
+                background-color: var(--bg-dark);
+            }
+            .logo { display: none; }
+            .sidebar .post-btn { display: none; }
+            .nav-btn { font-size: 14px; padding: 8px 20px; border-radius: 8px; }
+            .mobile-fab-btn { display: flex; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <div class="sidebar">
+        <div class="logo">PSO2NGS 募集</div>
+        <button class="nav-btn active" onclick="switchTab('list')">📋 募集一覧</button>
+        <button class="nav-btn" onclick="switchTab('chat')">💬 チャット</button>
+        <button class="post-btn" onclick="openPostModal()">募集する</button>
+    </div>
+
+    <div class="main-content">
+        <div id="page-list" class="tab-page active">
+            <div class="header-title">募集一覧</div>
+            <div id="recruitment-cards-container">
+                <p style="padding:15px; color:var(--text-sub);">現在募集はありません。「＋」ボタンから投稿してください。</p>
+            </div>
+        </div>
+
+        <div id="page-chat" class="tab-page">
+            <div class="header-title" id="chat-header-title">チャットルーム</div>
+            <div class="chat-container">
+                <div class="chat-info" id="chat-room-info">
+                    参加中のチャットルームはありません。
+                </div>
+                
+                <div id="host-approval-area" style="padding: 10px;"></div>
+
+                <div class="chat-messages" id="chat-messages">
+                    <p style="color:var(--text-sub);">チャット未接続です。</p>
+                </div>
+                <div class="chat-input-area">
+                    <input type="text" id="chat-input" placeholder="メッセージを入力...">
+                    <button class="post-btn" style="width:auto; padding:8px 20px; margin:0;" onclick="sendChatMessage()">送信</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<button class="mobile-fab-btn" onclick="openPostModal()">＋</button>
+
+<div class="modal-overlay" id="post-modal">
+    <div class="modal-body">
+        <h3 style="margin-top:0; color:var(--accent-blue);">新規パーティ募集</h3>
+        <form id="create-post-form">
+            <div class="form-group">
+                <label>あなたのキャラクター名 *</label>
+                <input type="text" id="host-name" required placeholder="例: ARKS_ Taro">
+            </div>
+
+            <div class="form-group">
+                <label>クエストを選択 *</label>
+                <select id="quest-select" required>
+                    <optgroup label="期間限定">
+                        <option value="期間限定クエストA">期間限定クエストA</option>
+                    </optgroup>
+                    <optgroup label="緊急クエスト">
+                        <option value="緊急クエストA">緊急クエストA</option>
+                        <option value="緊急クエストB">緊急クエストB</option>
+                    </optgroup>
+                    <optgroup label="タイムエクステンション">
+                        <option value="タイムエクステンションA">タイムエクステンションA</option>
+                        <option value="タイムエクステンションB">タイムエクステンションB</option>
+                    </optgroup>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>募集サーバー</label>
+                <select id="server-select">
+                    <option value="全体シップ" selected>全体シップ</option>
+                    <option value="1鯖 (Ship01)">1鯖 (Ship01)</option>
+                    <option value="2鯖 (Ship02)">2鯖 (Ship02)</option>
+                    <option value="3鯖 (Ship03)">3鯖 (Ship03)</option>
+                    <option value="4鯖 (Ship04)">4鯖 (Ship04)</option>
+                    <option value="5鯖 (Ship05)">5鯖 (Ship05)</option>
+                    <option value="6鯖 (Ship06)">6鯖 (Ship06)</option>
+                    <option value="7鯖 (Ship07)">7鯖 (Ship07)</option>
+                    <option value="8鯖 (Ship08)">8鯖 (Ship08)</option>
+                    <option value="9鯖 (Ship09)">9鯖 (Ship09)</option>
+                    <option value="10鯖 (Ship10)">10鯖 (Ship10)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>終了予定時刻（15分単位）</label>
+                <input type="time" id="limit-time" step="900">
+            </div>
+
+            <div class="form-group">
+                <label>募集人数 (1〜11人)</label>
+                <select id="members-count">
+                    <option value="1">1名</option><option value="2">2名</option><option value="3">3名</option>
+                    <option value="4">4名</option><option value="5">5名</option><option value="6">6名</option>
+                    <option value="7">7名</option><option value="8">8名</option><option value="9">9名</option>
+                    <option value="10">10名</option><option value="11">11名</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>部屋パスワード (必須) *</label>
+                <input type="text" id="room-password" required placeholder="例: 1234">
+            </div>
+
+            <div class="form-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="require-approval"> 入室を許可制にする（ホストの承認が必要）
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label>コメント</label>
+                <textarea id="comment" rows="2" maxlength="50" placeholder="例: 武器600%以上"></textarea>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-top: 20px;">
+                <button type="submit" class="post-btn" style="margin:0;">募集を開始</button>
+                <button type="button" class="post-btn" style="background:#485260; margin:0;" onclick="closePostModal()">キャンセル</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-overlay" id="join-modal">
+    <div class="modal-body">
+        <h3 style="margin-top:0; color:var(--accent-blue);">パーティ参加</h3>
+        <div class="form-group">
+            <label>あなたのキャラクター名 *</label>
+            <input type="text" id="joiner-name" placeholder="例: Guest_Player">
+        </div>
+        <div style="display:flex; gap:10px;">
+            <button class="btn-join" style="width:100%; font-size:16px; padding:12px;" onclick="submitJoinRequest()">参加する</button>
+            <button class="post-btn" style="background:#485260; width:auto; margin:0;" onclick="closeJoinModal()">キャンセル</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let recruitmentList = [];
+    let activeRoom = null;
+    let selectedRecruitmentId = null;
+    let rejectedCountMap = {}; // 各募集に対する拒否回数を記録 { roomId: count }
+
+    // 画面読み込み時に保存されたキャラ名を補完
+    window.addEventListener('DOMContentLoaded', () => {
+        const savedName = localStorage.getItem('pso2_char_name');
+        if (savedName) {
+            document.getElementById('host-name').value = savedName;
+            document.getElementById('joiner-name').value = savedName;
+        }
+    });
+
+    function saveCharacterName(name) {
+        if (name) {
+            localStorage.setItem('pso2_char_name', name);
+            document.getElementById('host-name').value = name;
+            document.getElementById('joiner-name').value = name;
+        }
+    }
+
+    function switchTab(tabName) {
+        document.querySelectorAll('.tab-page').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active'));
+
+        if(tabName === 'list') {
+            document.getElementById('page-list').classList.add('active');
+            document.querySelectorAll('.nav-btn')[0].classList.add('active');
+        } else if(tabName === 'chat') {
+            document.getElementById('page-chat').classList.add('active');
+            document.querySelectorAll('.nav-btn')[1].classList.add('active');
+        }
+    }
+
+    function openPostModal() { document.getElementById('post-modal').style.display = 'flex'; }
+    function closePostModal() { document.getElementById('post-modal').style.display = 'none'; }
+    function openJoinModal(id) { 
+        selectedRecruitmentId = id;
+        document.getElementById('join-modal').style.display = 'flex'; 
+    }
+    function closeJoinModal() { document.getElementById('join-modal').style.display = 'none'; }
+
+    // 募集作成
+    document.getElementById('create-post-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const hostName = document.getElementById('host-name').value;
+        saveCharacterName(hostName);
+
+        const quest = document.getElementById('quest-select').value;
+        const server = document.getElementById('server-select').value;
+        const timeVal = document.getElementById('limit-time').value;
+        const maxMembers = parseInt(document.getElementById('members-count').value);
+        const password = document.getElementById('room-password').value;
+        const requireApproval = document.getElementById('require-approval').checked;
+        const comment = document.getElementById('comment').value;
+
+        const newPost = {
+            id: Date.now(),
+            hostName,
+            quest,
+            server,
+            limitVal: timeVal ? `${timeVal}まで` : '指定なし',
+            maxMembers,
+            currentMembers: 1,
+            password,
+            requireApproval,
+            comment,
+            members: [hostName]
+        };
+
+        recruitmentList.push(newPost);
+        renderRecruitmentList();
+        closePostModal();
+
+        enterChatRoom(newPost, true);
+    });
+
+    function renderRecruitmentList() {
+        const container = document.getElementById('recruitment-cards-container');
+        if (recruitmentList.length === 0) {
+            container.innerHTML = `<p style="padding:15px; color:var(--text-sub);">現在募集はありません。「＋」ボタンから投稿してください。</p>`;
+            return;
+        }
+
+        container.innerHTML = '';
+        recruitmentList.forEach(item => {
+            const rejectedTimes = rejectedCountMap[item.id] || 0;
+            const isBlocked = rejectedTimes >= 2;
+
+            const card = document.createElement('div');
+            card.className = 'card';
+            card.innerHTML = `
+                <div class="card-header">
+                    <span>主: <strong>${item.hostName}</strong> | ${item.server}</span>
+                    <span>終了: ${item.limitVal}</span>
+                </div>
+                <div class="card-title">${item.quest}</div>
+                <div class="card-body">
+                    ${item.comment || 'コメントなし'}<br>
+                    <span style="color:#a3b3c2; font-size:12px;">残枠: ${item.maxMembers - item.currentMembers}名 / 計${item.maxMembers}名</span>
+                </div>
+                <div class="card-footer">
+                    <span style="font-size:12px; color:var(--accent-blue);">
+                        🔒 パスあり ${item.requireApproval ? ' | 🛡️ 承認制' : ''}
+                    </span>
+                    <button class="btn-join" ${isBlocked ? 'disabled' : ''} onclick="openJoinModal(${item.id})">
+                        ${isBlocked ? '参加不可（2回拒否）' : '参加する'}
+                    </button>
+                </div>
+            `;
+            container.appendChild(card);
+        });
+    }
+
+    function submitJoinRequest() {
+        const joinerName = document.getElementById('joiner-name').value;
+        if (!joinerName) { alert('キャラ名を入力してください'); return; }
+
+        saveCharacterName(joinerName);
+        closeJoinModal();
+
+        const target = recruitmentList.find(item => item.id === selectedRecruitmentId);
+        if (!target) return;
+
+        if (target.requireApproval) {
+            alert('募集主に入室申請を送信しました。ホストの許可をお待ちください。');
+            triggerHostApproval(target, joinerName);
+        } else {
+            target.currentMembers += 1;
+            target.members.push(joinerName);
+            
+            if (target.currentMembers >= target.maxMembers) {
+                recruitmentList = recruitmentList.filter(item => item.id !== target.id);
+            }
+            renderRecruitmentList();
+            
+            enterChatRoom(target, false);
+            addChatMessage('システム', `${joinerName} さんが入室しました。`);
+        }
+    }
+
+    function triggerHostApproval(room, joinerName) {
+        if (activeRoom && activeRoom.id === room.id && activeRoom.isHost) {
+            const approvalArea = document.getElementById('host-approval-area');
+            approvalArea.innerHTML = `
+                <div class="permission-box">
+                    <span><strong>${joinerName}</strong> さんが参加を申請しています</span>
+                    <div>
+                        <button class="btn-join" style="padding:6px 14px;" onclick="approveUser('${joinerName}')">許可</button>
+                        <button class="post-btn" style="background:var(--red); width:auto; padding:6px 14px; margin:0;" onclick="rejectUser(${room.id})">拒否</button>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    function approveUser(joinerName) {
+        if (!activeRoom) return;
+
+        activeRoom.currentMembers += 1;
+        activeRoom.members.push(joinerName);
+
+        document.getElementById('host-approval-area').innerHTML = '';
+        addChatMessage('システム', `${joinerName} さんの入室が許可されました。`);
+
+        if (activeRoom.currentMembers >= activeRoom.maxMembers) {
+            recruitmentList = recruitmentList.filter(item => item.id !== activeRoom.id);
+            addChatMessage('システム', '定員に達したため、募集一覧から自動削除されました。');
+        }
+        renderRecruitmentList();
+        updateChatInfo();
+    }
+
+    // 拒否処理（カウント加算と制限）
+    function rejectUser(roomId) {
+        document.getElementById('host-approval-area').innerHTML = '';
+        
+        // 該当募集の拒否回数をインクリメント
+        rejectedCountMap[roomId] = (rejectedCountMap[roomId] || 0) + 1;
+
+        alert(`申請を拒否しました。（拒否回数: ${rejectedCountMap[roomId]}/2回）`);
+        
+        // 2回拒否された場合はリストの表示を更新してボタンを不可にする
+        renderRecruitmentList();
+    }
+
+    function enterChatRoom(roomData, isHost = false) {
+        activeRoom = { ...roomData, isHost };
+        document.getElementById('chat-header-title').textContent = `${roomData.quest} (チャット)`;
+        updateChatInfo();
+
+        const messagesContainer = document.getElementById('chat-messages');
+        messagesContainer.innerHTML = '';
+        addChatMessage('システム', `チャットルームに入室しました。`);
+
+        switchTab('chat');
+    }
+
+    function updateChatInfo() {
+        if(!activeRoom) return;
+        document.getElementById('chat-room-info').innerHTML = `
+            <strong>[${activeRoom.server}] パスワード: <span style="color:var(--accent-blue); font-size:16px;">${activeRoom.password}</span></strong><br>
+            メンバー: ${activeRoom.members.join(', ')} (${activeRoom.currentMembers}/${activeRoom.maxMembers}名)
+        `;
+    }
+
+    function addChatMessage(sender, text) {
+        const container = document.getElementById('chat-messages');
+        const p = document.createElement('div');
+        p.style.marginBottom = "8px";
+        const savedName = localStorage.getItem('pso2_char_name') || '自分';
+        p.innerHTML = `<strong style="color:var(--accent-blue);">${sender}:</strong> ${text}`;
+        container.appendChild(p);
+        container.scrollTop = container.scrollHeight;
+    }
+
+    function sendChatMessage() {
+        const input = document.getElementById('chat-input');
+        if (!input.value.trim() || !activeRoom) return;
+        const myName = localStorage.getItem('pso2_char_name') || '自分';
+        addChatMessage(myName, input.value);
+        input.value = '';
+    }
+</script>
+
+</body>
+</html>
