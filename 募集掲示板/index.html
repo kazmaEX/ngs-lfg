@@ -169,6 +169,7 @@ if(!localStorage.getItem(KEY)){for(const k of LEGACY_KEYS){const raw=localStorag
 const SUPABASE_URL='https://touglesmrhujtswkldmf.supabase.co';
 const SUPABASE_ANON_KEY='sb_publishable_MCCErF5zf5KSyREV4Yrnaw_5dNoHqR5';
 let sb=null, authReady=false, realtime=[], actionBusy=false, loadSeq=0, loadInFlight=false, loadQueued=false, loadQueuedOpenRoom=false, realtimeTimer=null, roomMessageSeq={}, roomMessageInFlight={}, backendRetryTimer=0, backendRetryMs=1000, backendLastError='', backendInitInFlight=null, backendPollTimer=0, realtimeRetryTimer=0, realtimeRetryMs=1000, realtimeGeneration=0, authListenerBound=false, authCheckInFlight=null, lastStableAuthAt=0, connectionGeneration=0;
+let chatSelectionMode=false, selectedChatIds=new Set();
 function beginAction(){if(actionBusy){toast('処理中です。少し待ってください');return false}actionBusy=true;return true}
 function endAction(){actionBusy=false}
 const backendConfigured=()=>SUPABASE_URL.startsWith('https://')&&SUPABASE_ANON_KEY.length>20;
@@ -184,20 +185,29 @@ if(backendConfigured()){db.recruitments=[];db.rooms=[];db.hiddenChats=[];db.bloc
 function save(){localStorage.setItem(KEY,JSON.stringify(db))}
 function normalizeConditionTags(tags){return Array.isArray(tags)&&tags.includes('武器上昇値700%以上')?['武器上昇値700%以上']:[]}
 
-// 承認待ちの場合は未読件数を0にする
+// 募集が現在アクティブ（募集一覧に存在し、open状態）かを判定
+function isRecruitmentActive(recruitmentId){
+  if(!recruitmentId) return false;
+  let r = db.recruitments.find(x => x.id === recruitmentId);
+  return !!r && recruitmentState(r) === 'open';
+}
+
+// 修正：実際の未読メッセージが存在する場合のみ未読件数をカウント
 function unreadCount(room){
-  let isPending = (room.pendingIds||[]).includes(db.user?.id);
-  if(isPending) return 0;
-  if(typeof room.unreadCount==='number')return room.unreadCount;
-  const last=lastMsgTime(room);
-  return last>(db.readAt?.[room.id]||0)?room.messages.filter(m=>m.uid!==db.user.id&&m.time>(db.readAt?.[room.id]||0)).length:0;
+  // サーバーの unread_count ではなく、実際の通常チャットメッセージだけを未読として数える。
+  if((room.pendingIds||[]).includes(db.user?.id)) return 0;
+  const readTime = db.readAt?.[room.id] || 0;
+  const validMsgs = (room.messages||[]).filter(filterSystemMsg);
+  const otherMsgs = validMsgs.filter(m => m.uid !== db.user?.id);
+  if(otherMsgs.length) return otherMsgs.filter(m => Number(m.time)>readTime).length;
+  const last = room.lastMessage && filterSystemMsg(room.lastMessage) ? room.lastMessage : null;
+  if(last && last.uid !== db.user?.id) return Number(last.time)>readTime ? 1 : 0;
+  return 0;
 }
 
 function markRoomRead(id){db.readAt=db.readAt||{};db.readAt[id]=now();save()}
 function uid(){return crypto.randomUUID()}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
-// Backend identifiers must be UUIDs. Rejecting unexpected identifiers prevents
-// user-controlled strings from ever being embedded into inline event handlers.
 function safeId(id){
   const v=String(id??'');
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v)?v:'';
@@ -208,9 +218,6 @@ function requireSafeId(id){
   return v;
 }
 function normalizeShipForBackend(ship){
-  // profiles.ship の CHECK 制約は Ship 1〜10 を要求するため、
-  // 「全体シップ」はプロフィールDBには安全な実在Ship値を保存する。
-  // 画面上の選択値は db.user.ship に保持し、募集時は create_recruitment_v30 用に「全Ship」へ変換する。
   return ship==='全体シップ'?'Ship 1':ship;
 }
 function normalizeRecruitmentShipForBackend(ship){return ship==='全体シップ'?'全Ship':ship}
@@ -407,7 +414,7 @@ async function loadBackendState(){
           membersSnapshot:history.map(x=>x.user_id).filter(Boolean),participants:history.map(x=>x.user_id).filter(Boolean),activeIds:active.map(x=>x.user_id).filter(Boolean),pendingIds:(Array.isArray(room.pending_members)?room.pending_members:[]).map(x=>x?.user_id).filter(Boolean),
           ready:Object.fromEntries(active.filter(x=>x?.user_id).map(x=>[x.user_id,!!x.ready])),code:String(room.code||''),messages:[],messagesLoaded:false,messageHasMore:false,
           messageOldestId:null,lastMessage:room.last_message_id?{uid:room.last_user_id,name:room.last_display_name,text:room.last_body,time:new Date(room.last_created_at).getTime(),serverId:room.last_message_id}:null,
-          unreadCount:Number(room.unread_count||0),closed:!!room.closed_at,deletedBy:[],lastActivity:new Date(room.last_activity||room.created_at).getTime()
+          unreadCount:0,closed:!!room.closed_at,deletedBy:[],lastActivity:new Date(room.last_activity||room.created_at).getTime()
         });
       }
       db.rooms=nextRooms;
@@ -436,7 +443,6 @@ async function loadBackendState(){
   }
 }
 
-// システム自動発言を無効化・フィルタリングする関数
 function filterSystemMsg(msg){
   if(!msg) return false;
   if(msg.uid === 'system') return false;
@@ -514,7 +520,7 @@ function showPage(p){
     chatRoom.style.display='none';
     delete chatRoom.dataset.openRoom;
     chatList.style.display='grid';
-    chatList.classList.remove('selecting');
+    chatList.classList.toggle('selecting',chatSelectionMode);
     renderRooms();
   }
   if(p==='profile')renderProfile();
@@ -595,12 +601,13 @@ async function createRecruitment(){
       let room=db.rooms.find(x=>x.id===roomResult.data||x.recruitmentId===recruitmentId);
       closeModal();
       render();
-      if(room){showPage('chat');await openRoom(room.id)}else{showPage('chat');renderRooms();toast('募集を開始しました。チャット一覧を更新しました')}
+      if(room){markRoomRead(room.id);showPage('chat');await openRoom(room.id)}else{showPage('chat');renderRooms();toast('募集を開始しました。チャット一覧を更新しました')}
       return;
     }
     let r={id:uid(),hostId:db.user.id,hostName:displayUser(db.user),ship:cShip.value,quest,max,current:0,pending:[],members:[db.user.id],condition,conditionTags,comment,mode,createdAt:now(),expiresAt:now()+30*60*1000,extensions:0};
     db.recruitments.unshift(r);
-    createRoomFor(r);
+    let rm=createRoomFor(r);
+    if(rm)markRoomRead(rm.id);
     save();
     closeModal();
     render();
@@ -646,12 +653,14 @@ async function join(id){
       await loadBackendState();
       render();
       if(data?.room_id){
+        markRoomRead(data.room_id);
         showPage('chat');
         await openRoom(data.room_id);
         toast(data?.status==='joined'?'参加しました':'参加申請を送りました');
       }else if(data?.status==='joined'){
         let roomResult=await sb.rpc('open_party_room',{p_recruitment:id});
         if(!roomResult.error && roomResult.data){
+          markRoomRead(roomResult.data);
           await loadBackendState();
           showPage('chat');
           await openRoom(roomResult.data);
@@ -675,6 +684,7 @@ async function join(id){
       r.current=r.members.length-1;
       let rm=createRoomFor(r);
       if(rm && !rm.participants.includes(db.user.id)) rm.participants.push(db.user.id);
+      if(rm) markRoomRead(rm.id);
       save();
       closeModal();
       toast('参加しました');
@@ -693,7 +703,7 @@ async function join(id){
 }
 
 async function approveRequest(rid,uid2){
-  rid=safeId(rid);uid2=safeId(uid2);if(!rid||!uid2)return toast('不正なIDです');if(backendConfigured()&&!requireBackend())return;if(!beginAction())return;try{if(sb&&authReady){let {data,error}=await sb.rpc('approve_recruitment_request',{p_recruitment:rid,p_user:uid2});if(error){toast(apiError(error));return}await loadBackendState();render();if(data?.room_id){showPage('chat');await openRoom(data.room_id)}else{openManage(rid)}toast('参加申請を承認しました');return}let r=db.recruitments.find(x=>x.id===rid);if(!r||r.hostId!==db.user?.id||r.members.length-1>=r.max)return;r.pending=r.pending.filter(x=>x!==uid2);r.members.push(uid2);r.current=r.members.length-1;createRoomFor(r);save();toast('参加申請を承認しました');openManage(rid);render()}finally{endAction()}}
+  rid=safeId(rid);uid2=safeId(uid2);if(!rid||!uid2)return toast('不正なIDです');if(backendConfigured()&&!requireBackend())return;if(!beginAction())return;try{if(sb&&authReady){let {data,error}=await sb.rpc('approve_recruitment_request',{p_recruitment:rid,p_user:uid2});if(error){toast(apiError(error));return}await loadBackendState();render();if(data?.room_id){markRoomRead(data.room_id);showPage('chat');await openRoom(data.room_id)}else{openManage(rid)}toast('参加申請を承認しました');return}let r=db.recruitments.find(x=>x.id===rid);if(!r||r.hostId!==db.user?.id||r.members.length-1>=r.max)return;r.pending=r.pending.filter(x=>x!==uid2);r.members.push(uid2);r.current=r.members.length-1;let rm=createRoomFor(r);if(rm)markRoomRead(rm.id);save();toast('参加申請を承認しました');openManage(rid);render()}finally{endAction()}}
 async function rejectRequest(rid,uid2){
   rid=safeId(rid);uid2=safeId(uid2);if(!rid||!uid2)return toast('不正なIDです');if(backendConfigured()&&!requireBackend())return;if(!beginAction())return;try{if(sb&&authReady){let {error}=await sb.rpc('reject_recruitment_request',{p_recruitment:rid,p_user:uid2});if(error){toast(apiError(error));return}await loadBackendState();render();let current=document.getElementById('chatRoom')?.dataset.openRoom;if(current){await openRoom(current)}else{openManage(rid)}toast('参加申請を拒否しました');return}let r=db.recruitments.find(x=>x.id===rid);if(!r||r.hostId!==db.user?.id)return;r.pending=r.pending.filter(x=>x!==uid2);save();toast('参加申請を拒否しました');openManage(rid);render()}finally{endAction()}}
 async function extendRecruitment(id){
@@ -721,6 +731,7 @@ async function openRoomForRecruitment(id){
       }
       if(room){
         room.deletedBy = (room.deletedBy||[]).filter(u => u !== db.user.id);
+        markRoomRead(room.id);
         showPage('chat');
         await openRoom(room.id);
       }
@@ -735,6 +746,7 @@ async function openRoomForRecruitment(id){
     }
     if(room){
       room.deletedBy = (room.deletedBy||[]).filter(u => u !== db.user.id);
+      markRoomRead(room.id);
       showPage('chat');
       await openRoom(room.id);
     }
@@ -746,14 +758,18 @@ function lastMsgTime(room){
   let validMsgs = (room.messages||[]).filter(filterSystemMsg);
   return validMsgs.length ? validMsgs[validMsgs.length-1].time : 0;
 }
-async function toggleChatSelect(){let selecting=!chatList.classList.contains('selecting');chatList.classList.toggle('selecting',selecting);document.querySelectorAll('.chat-check').forEach(x=>x.style.display=selecting?'block':'none');let b=document.getElementById('bulkChatActions');if(b)b.style.display=selecting?'flex':'none';let toolbar=chatList.querySelector('.chat-toolbar .btn');if(toolbar)toolbar.textContent=selecting?'選択を終了':'選択'}
+async function toggleChatSelect(){
+  chatSelectionMode=!chatSelectionMode;
+  chatList.classList.toggle('selecting',chatSelectionMode);
+  if(!chatSelectionMode) selectedChatIds.clear();
+  renderRooms();
+}
 
-// 個別選択削除（削除後も募集一覧等からいつでも復帰可能）
 async function deleteSelectedChats(){
   if(backendConfigured()&&!requireBackend())return;
   if(!beginAction())return;
   try{
-    let ids=[...document.querySelectorAll('.chat-check:checked')].map(x=>x.value);
+    let ids=[...selectedChatIds];
     if(!ids.length)return toast('削除するチャットを選択してください');
 
     if(!confirm(`${ids.length}件のチャットを一覧から削除しますか？`))return;
@@ -763,12 +779,14 @@ async function deleteSelectedChats(){
         if(error){toast(apiError(error));return}
       }
       await loadBackendState();
+      selectedChatIds.clear();
       renderRooms();
       toast(`${ids.length}件を非表示にしました`);
       return;
     }
     db.rooms.forEach(room=>{if(ids.includes(room.id)&&!room.deletedBy.includes(db.user.id))room.deletedBy.push(db.user.id)});
     save();
+    selectedChatIds.clear();
     renderRooms();
     toast(`${ids.length}件のチャットを削除しました`);
   }finally{endAction()}
@@ -804,33 +822,49 @@ async function deleteAllChats(){
 
 function roomInfo(room){return{quest:room.quest||'クエスト',ship:normalizeShipForDisplay(room.ship||'全体シップ'),hostId:room.hostId||'',hostName:room.hostName||'募集主',max:room.max||1,members:room.membersSnapshot||[]}}
 
-// チャット一覧のレンダリング
+// 修正：再レンダリング時にもユーザーの選択モード状態およびチェック項目を維持
 function renderRooms(){
   if(!db.user?.id)return;
+  
+  // 選択状態は DOM ではなく state で保持し、定期的な再描画でも解除しない。
+  let isSelecting = chatSelectionMode;
+  let selectedIds = new Set(selectedChatIds);
+
   let rooms=db.rooms.filter(room=>room.participants?.includes?.(db.user.id)&&!room.deletedBy?.includes?.(db.user.id));
   rooms.sort((a,b)=>{let au=unreadCount(a)>0,bu=unreadCount(b)>0;if(au!==bu)return bu-au;return (b.lastActivity||lastMsgTime(b))-(a.lastActivity||lastMsgTime(a))});
   
   let pendingRooms=rooms.filter(room=>{
-    let recExists = db.recruitments.some(r=>r.id===room.recruitmentId && recruitmentState(r)==='open');
+    let recExists = isRecruitmentActive(room.recruitmentId);
     return recExists && room.hostId===db.user.id && (room.pendingIds||[]).length>0;
   });
   
-  chatList.innerHTML=rooms.length?`<div class="chat-toolbar">${pendingRooms.length?`<span class="badge hot">🔔 参加申請 ${pendingRooms.reduce((n,r)=>n+r.pendingIds.length,0)}件</span>`:''}<button class="btn" onclick="toggleChatSelect()">選択</button><button class="btn danger" onclick="deleteAllChats()">すべて削除</button></div><div id="chatRows">${rooms.map(room=>{
+  chatList.innerHTML=rooms.length?`<div class="chat-toolbar">${pendingRooms.length?`<span class="badge hot">🔔 参加申請 ${pendingRooms.reduce((n,r)=>n+r.pendingIds.length,0)}件</span>`:''}<button class="btn" onclick="toggleChatSelect()">${isSelecting?'選択を終了':'選択'}</button><button class="btn danger" onclick="deleteAllChats()">すべて削除</button></div><div id="chatRows">${rooms.map(room=>{
     let r=roomInfo(room);
     let isPending=(room.pendingIds||[]).includes(db.user.id);
     let validMsgs = (room.messages||[]).filter(filterSystemMsg);
     let last = room.lastMessage && filterSystemMsg(room.lastMessage) ? room.lastMessage : (validMsgs.length ? validMsgs[validMsgs.length-1] : null);
     
-    let status=room.closed?'終了済み':(isPending?'承認待ち':'進行中');
+    // チャット一覧には「進行中」を表示しない。
+    let recActive = isRecruitmentActive(room.recruitmentId);
+    let status = room.closed ? '終了済み' : (isPending ? '承認待ち' : '');
+    
     let unread=unreadCount(room);
-    
-    let recActive = db.recruitments.some(rec=>rec.id===room.recruitmentId && recruitmentState(rec)==='open');
     let pending = recActive && room.hostId===db.user.id && (room.pendingIds||[]).length;
-    
     let previewText = (!isPending && last) ? esc(last.text) : '';
+    let isChecked = selectedIds.has(room.id);
 
-    return `<div class="room chat-row ${unread?'has-unread':''}"><input class="chat-check" type="checkbox" value="${room.id}" style="display:none"><div onclick="openRoom('${room.id}')"><strong>${esc(r.quest)} ${unread?`<span class="badge green unread-badge">未読 ${unread}</span>`:''}${pending?` <span class="badge hot unread-badge">🔔 申請 ${room.pendingIds.length}件</span>`:''}</strong><small>${esc(r.ship)} · ${status}${previewText ? ' · ' + previewText : ''}</small></div><button class="btn primary" onclick="openRoom('${room.id}')">開く</button></div>`
-  }).join('')}</div><div id="bulkChatActions" class="chat-toolbar" style="display:none"><button class="btn danger" onclick="deleteSelectedChats()">選択したチャットを削除</button></div>`:`<div class="empty">チャット履歴はありません。<br><br>募集を作成・参加するとここに表示されます。</div>`
+    return `<div class="room chat-row ${unread?'has-unread':''}"><input class="chat-check" type="checkbox" value="${room.id}" ${isChecked?'checked':''} style="display:${isSelecting?'block':'none'}"><div onclick="openRoom('${room.id}')"><strong>${esc(r.quest)} ${unread?`<span class="badge green unread-badge">未読 ${unread}</span>`:''}${pending?` <span class="badge hot unread-badge">🔔 申請 ${room.pendingIds.length}件</span>`:''}</strong><small>${esc(r.ship)}${status ? ' · ' + status : ''}${previewText ? ' · ' + previewText : ''}</small></div><button class="btn primary" onclick="openRoom('${room.id}')">開く</button></div>`
+  }).join('')}</div><div id="bulkChatActions" class="chat-toolbar" style="display:${isSelecting?'flex':'none'}"><button class="btn danger" onclick="deleteSelectedChats()">選択したチャットを削除</button></div>`:`<div class="empty">チャット履歴はありません。<br><br>募集を作成・参加するとここに表示されます。</div>`;
+
+  // 選択状態を再描画後も維持する。
+  chatSelectionMode=isSelecting;
+  chatList.classList.toggle('selecting',isSelecting);
+  const visibleIds=new Set(rooms.map(r=>r.id));
+  selectedChatIds=new Set([...selectedIds].filter(id=>visibleIds.has(id)));
+  chatList.querySelectorAll('.chat-check').forEach(x=>{
+    x.checked=selectedChatIds.has(x.value);
+    x.onchange=()=>{if(x.checked)selectedChatIds.add(x.value);else selectedChatIds.delete(x.value)};
+  });
 }
 
 function openUserActions(userId,roomId,recruitmentId){openModal(`<h2>ユーザー操作</h2><div class="notice">非表示は自分だけに適用されます。通報は運営確認用です。</div><div class="dialog-actions"><button class="btn danger" onclick="blockUser('${userId}')">このユーザーを非表示</button><button class="btn" onclick="openReport('${userId}','${recruitmentId||''}','${roomId||''}')">通報</button><button class="btn" onclick="closeModal()">キャンセル</button></div>`)}
@@ -843,12 +877,16 @@ async function openRoom(id,opts={}){
   if(db.hiddenChats.includes(room.id)){
     db.hiddenChats = db.hiddenChats.filter(x => x !== room.id);
   }
-  let previousHeight=opts.preserveScroll?document.getElementById('msgs')?.scrollHeight||0:0,previousTop=opts.preserveScroll?document.getElementById('msgs')?.scrollTop||0:0;let memberIds=room.membersSnapshot?.length?room.membersSnapshot:(room.participants?.length?room.participants:(roomInfo(room).members||[]));let activeIds=room.activeIds?.length?room.activeIds:Object.keys(room.ready||{});let pendingIds=room.pendingIds||[];let isActive=activeIds.includes(db.user.id);let isPending=pendingIds.includes(db.user.id);if(sb&&authReady&&!room.messagesLoaded&&!isPending){let q=await sb.rpc('list_room_messages',{p_limit:100,p_room:id});if(q.error){toast(apiError(q.error));return}let rows=q.data||[];room.messages=normalizeRoomMessages(rows);room.messageHasMore=rows.length>=100;room.messageOldestId=room.messages[0]?.serverId||null;room.messagesLoaded=true;room.unreadCount=0;save()}markRoomRead(id);let r=roomInfo(room);let names={};if(sb&&authReady&&memberIds.length){let q=await sb.rpc('list_room_participants',{p_room:id});if(!q.error)for(const x of q.data||[])names[x.user_id]=x.display_name}chatList.style.display='none';chatRoom.style.display='block';chatRoom.dataset.openRoom=id;let allReady=!room.closed&&activeIds.length>0&&activeIds.every(m=>room.ready[m]);let activeSet=new Set(activeIds);let memberLabels=memberIds.filter(m=>room.closed?true:activeSet.has(m)).map(m=>{let label=m===r.hostId?'募集主':'匿名プレイヤー';let menu=m!==db.user.id?` <button class="mini" onclick="event.stopPropagation();openUserActions('${m}','${room.id}','${room.recruitmentId}')">⋯</button>`:'';return `<span class="badge">${m===r.hostId?'👑 ':''}${esc(label)}${!room.closed&&room.ready[m]?' ✓':''}${menu}</span>`}).join('');let pendingLabels=pendingIds.map(m=>`<span class="badge hot">⏳ ${esc('匿名プレイヤー')}</span>`).join('');let status=room.closed?'この募集は閉じられています。チャット履歴は閲覧できます。':isPending?'参加申請を送信済みです。募集主の承認待ちです。':(!isActive?'このパーティーから退出済みです。チャット履歴を閲覧できます。':((r.hostId===db.user.id&&pendingIds.length)?`参加申請が${pendingIds.length}件あります。チャット内で承認・拒否できます。`:(allReady?'全員準備OK。出発できます。':'準備OKを押して出発準備を確認。')));let approvalActions=(r.hostId===db.user.id&&pendingIds.length&&!room.closed)?`<div class="notice">🔔 参加申請</div>${pendingIds.map(m=>`<div class="room"><div><strong>${esc('匿名プレイヤー')}</strong><small>${esc(m.slice(0,8))}</small></div><div class="actions"><button class="btn primary" onclick="approveRequest('${room.recruitmentId}','${m}')">承認</button><button class="btn danger" onclick="rejectRequest('${room.recruitmentId}','${m}')">拒否</button></div></div>`).join('')}`:'';let actions=room.closed?`<div class="notice">${status}</div>`:isPending?`<div class="notice">${status}</div>`:(!isActive?`<div class="notice">${status}</div>`:(r.hostId===db.user.id&&memberIds.includes(db.user.id)?`${approvalActions}<div class="room-actions"><button class="btn danger" onclick="disbandRoom('${room.id}')">募集を閉じる</button></div>`:`<div class="notice">参加者はこの画面から退出操作を行いません。</div>`));
+  let previousHeight=opts.preserveScroll?document.getElementById('msgs')?.scrollHeight||0:0,previousTop=opts.preserveScroll?document.getElementById('msgs')?.scrollTop||0:0;let memberIds=room.membersSnapshot?.length?room.membersSnapshot:(room.participants?.length?room.participants:(roomInfo(room).members||[]));let activeIds=room.activeIds?.length?room.activeIds:Object.keys(room.ready||{});let pendingIds=room.pendingIds||[];let isActive=activeIds.includes(db.user.id);let isPending=pendingIds.includes(db.user.id);if(sb&&authReady&&!room.messagesLoaded&&!isPending){let q=await sb.rpc('list_room_messages',{p_limit:100,p_room:id});if(q.error){toast(apiError(q.error));return}let rows=q.data||[];room.messages=normalizeRoomMessages(rows);room.messageHasMore=rows.length>=100;room.messageOldestId=room.messages[0]?.serverId||null;room.messagesLoaded=true;room.unreadCount=0;save()}markRoomRead(id);let r=roomInfo(room);let names={};if(sb&&authReady&&memberIds.length){let q=await sb.rpc('list_room_participants',{p_room:id});if(!q.error)for(const x of q.data||[])names[x.user_id]=x.display_name}chatList.style.display='none';chatRoom.style.display='block';chatRoom.dataset.openRoom=id;let allReady=!room.closed&&activeIds.length>0&&activeIds.every(m=>room.ready[m]);let activeSet=new Set(activeIds);let memberLabels=memberIds.filter(m=>room.closed?true:activeSet.has(m)).map(m=>{let label=m===r.hostId?'募集主':'匿名プレイヤー';let menu=m!==db.user.id?` <button class="mini" onclick="event.stopPropagation();openUserActions('${m}','${room.id}','${room.recruitmentId}')">⋯</button>`:'';return `<span class="badge">${m===r.hostId?'👑 ':''}${esc(label)}${!room.closed&&room.ready[m]?' ✓':''}${menu}</span>`}).join('');let pendingLabels=pendingIds.map(m=>`<span class="badge hot">⏳ ${esc('匿名プレイヤー')}</span>`).join('');let status=room.closed?'この募集は閉じられています。チャット履歴は閲覧できます。':isPending?'参加申請を送信済みです。募集主の承認待ちです。':(!isActive?'このパーティーから退出済みです。チャット履歴を閲覧できます。':((r.hostId===db.user.id&&pendingIds.length)?`参加申請が${pendingIds.length}件あります。チャット内で承認・拒否できます。`:(allReady?'全員準備OK。出発できます。':'準備OKを押して出発準備を確認。')));let approvalActions=(r.hostId===db.user.id&&pendingIds.length&&!room.closed)?`<div class="notice">🔔 参加申請</div>${pendingIds.map(m=>`<div class="room"><div><strong>${esc('匿名プレイヤー')}</strong><small>${esc(m.slice(0,8))}</small></div><div class="actions"><button class="btn primary" onclick="approveRequest('${room.recruitmentId}','${m}')">承認</button><button class="btn danger" onclick="rejectRequest('${room.recruitmentId}','${m}')">拒否</button></div></div>`).join('')}`:'';
+
+// 修正：募集が一覧に存在する場合（isRecruitmentActive(room.recruitmentId) === true）のみ「募集を閉じる」ボタンを表示。
+// 不要な「参加者はこの画面から退出操作を行いません。」メッセージを削除。
+let recActive = isRecruitmentActive(room.recruitmentId);
+let actions=room.closed?`<div class="notice">${status}</div>`:isPending?`<div class="notice">${status}</div>`:(!isActive?`<div class="notice">${status}</div>`:(r.hostId===db.user.id&&memberIds.includes(db.user.id)?`${approvalActions}${recActive?`<div class="room-actions"><button class="btn danger" onclick="disbandRoom('${room.id}')">募集を閉じる</button></div>`:''}`:''));
 
 let validMessages = (room.messages||[]).filter(filterSystemMsg);
 let messagesHtml=isPending?`<div style="text-align:center;padding:40px 10px;color:var(--muted)">参加申請の承認待ちです。<br>募集主に承認されるとチャット内容が表示されます。</div>`:(`${room.messageHasMore?`<div style="text-align:center;margin-bottom:10px"><button class="btn" onclick="loadOlderMessages('${room.id}')">${room.loadingOlder?'読み込み中…':'過去のメッセージを読み込む'}</button></div>`:''}${validMessages.map(m=>`<div class="msg ${m.uid===db.user.id?'me':''}"><small>${esc(m.name)} · ${new Date(m.time).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})}</small>${esc(m.text)}</div>`).join('')}`);
 
-// 承認待ち（isPending）の場合は合流コード（パスワード）を秘匿する
 let codeDisplay = isPending ? '承認待ちのため非表示' : '<b>' + esc(room.code) + '</b>';
 
 chatRoom.innerHTML=`<div class="chatbox"><div class="chatinfo"><button class="btn" onclick="chatRoom.style.display='none';chatList.style.display='grid';delete chatRoom.dataset.openRoom">← 一覧</button><h3 style="margin:13px 0 5px">${esc(r.quest)}</h3><div class="sub">${esc(r.ship)} · ${Math.max(1,room.closed?memberIds.length:activeIds.length)}/${(r.max||Math.max(1,activeIds.length-1))+1} · ${room.closed?'過去のチャット':'合流コード '+codeDisplay}</div><div class="badges" style="margin-bottom:0">${memberLabels}${pendingLabels}</div><div class="sub" style="margin-top:8px">${status}</div></div><div class="messages" id="msgs">${messagesHtml}</div>${room.closed||!isActive||isPending?'':`<div class="composer"><button class="btn ${room.ready[db.user.id]?'primary':''}" onclick="toggleReady('${room.id}')">${room.ready[db.user.id]?'✓ 準備OK':'準備OK'}</button><input id="msgInput" maxlength="500" placeholder="" onkeydown="if(event.key==='Enter')sendMsg('${room.id}')"><button class="btn primary" onclick="sendMsg('${room.id}')">送信</button></div>`}${actions}</div>`;setTimeout(()=>{let m=document.getElementById('msgs');if(!m)return;if(opts.preserveScroll)m.scrollTop=Math.max(0,m.scrollHeight-previousHeight+previousTop);else m.scrollTop=m.scrollHeight},0)}
