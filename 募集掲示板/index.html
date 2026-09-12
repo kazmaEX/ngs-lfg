@@ -133,7 +133,7 @@ button,input,select,textarea{font:inherit}button{cursor:pointer}
 <main class="main"><div class="mobilebar"><div><strong>NGS PARTY</strong><small id="mobileBackendStatus">接続確認中…</small></div><button onclick="openProfile()">👤</button></div>
 <section id="page-list" class="page active"><div class="top"><div><div class="eyebrow">REAL-TIME PARTY FINDER</div><div class="title">募集一覧</div></div><button class="btn primary" onclick="openCreate()">募集を作成</button></div><div class="filters"><div class="ship-filter" id="shipFilter"><button type="button" class="ship-filter-btn" onclick="toggleShipMenu()" id="shipFilterBtn">Ship：すべて ▾</button><div class="ship-menu" id="shipMenu"><div class="ship-menu-head"><b>表示するShip</b><div><button type="button" class="mini" onclick="setAllShips(true)">全選択</button><button type="button" class="mini" onclick="setAllShips(false)">全解除</button></div></div><div class="ship-options"><label><input class="ship-check" type="checkbox" value="全体シップ"> 全体シップ</label><label><input class="ship-check" type="checkbox" value="Ship 1"> Ship 1</label><label><input class="ship-check" type="checkbox" value="Ship 2"> Ship 2</label><label><input class="ship-check" type="checkbox" value="Ship 3"> Ship 3</label><label><input class="ship-check" type="checkbox" value="Ship 4"> Ship 4</label><label><input class="ship-check" type="checkbox" value="Ship 5"> Ship 5</label><label><input class="ship-check" type="checkbox" value="Ship 6"> Ship 6</label><label><input class="ship-check" type="checkbox" value="Ship 7"> Ship 7</label><label><input class="ship-check" type="checkbox" value="Ship 8"> Ship 8</label><label><input class="ship-check" type="checkbox" value="Ship 9"> Ship 9</label><label><input class="ship-check" type="checkbox" value="Ship 10"> Ship 10</label></div></div></div><select id="filterQuest"><option value="">全クエスト</option><option>想定演習：三路縦走戦</option><option>高難度クエスト</option><option>デクスト金策</option></select><select id="filterCondition"><option value="">条件：すべて</option><option>武器上昇値700%以上</option></select><input id="filterText" placeholder="クエスト・コメントを検索"></div><div class="statline"><span class="stat">🟢 <b id="liveCount">0</b> 募集</span><span class="stat">⚡ 直近1時間 <b id="recentCount">0</b>件</span><span class="stat">🚫 <b id="blockedCount">0</b>人を非表示</span></div><div id="cards" class="cards"></div></section>
 <section id="page-chat" class="page"><div class="top"><div><div class="eyebrow">PARTY ROOMS</div><div class="title">チャット</div></div></div><div id="chatList" class="chatlist"></div><div id="chatRoom" style="display:none"></div></section>
-<section id="page-profile" class="page"><div class="top"><div><div class="eyebrow">LOCAL PROFILE</div><div class="title">プロフィール</div><div class="sub">ログイン操作なし。匿名IDで設定を保持します。</div></div></div><div class="card profile"><div class="kv"><span>表示名</span><span id="pName"></span></div><div class="kv"><span>キャラクター名</span><span id="pChar"></span></div><div class="kv"><span>Ship</span><span id="pShip"></span></div><div class="kv"><span>内部ユーザーID</span><span id="pId"></span></div><div><button class="btn" onclick="openProfile()">プロフィールを編集</button> <button class="btn" onclick="openTemplates()">テンプレート管理</button></div><div><button class="btn danger" onclick="openBlocks()">非表示ユーザー <span id="pBlocked"></span></button></div></div></section>
+<section id="page-profile" class="page"><div class="top"><div><div class="eyebrow">LOCAL PROFILE</div><div class="title">プロフィール</div><div class="sub">ログイン操作なし。匿名IDで設定を保持します。</div></div></div><div class="card profile"><div class="kv"><span>表示名</span><span id="pName"></span></div><div class="kv"><span>Ship</span><span id="pShip"></span></div><div class="kv"><span>内部ユーザーID</span><span id="pId"></span></div><div><button class="btn" onclick="openProfile()">プロフィールを編集</button> <button class="btn" onclick="openTemplates()">テンプレート管理</button></div><div><button class="btn danger" onclick="openBlocks()">非表示ユーザー <span id="pBlocked"></span></button></div></div></section>
 </main></div>
 <div class="bottomnav"><button class="active" data-page="list">📋<br>募集</button><button data-page="chat">💬<br>チャット</button><button data-page="profile">👤<br>設定</button></div>
 
@@ -194,15 +194,15 @@ function isRecruitmentActive(recruitmentId){
 
 // 修正：実際の未読メッセージが存在する場合のみ未読件数をカウント
 function unreadCount(room){
-  // サーバーの unread_count ではなく、実際の通常チャットメッセージだけを未読として数える。
+  // 承認待ち・未読み込み状態では、未確認の「最後のメッセージ」を
+  // 未読1件として推測しない。実際に取得できた通常チャットだけを数える。
   if((room.pendingIds||[]).includes(db.user?.id)) return 0;
+  if(!room.messagesLoaded) return 0;
   const readTime = db.readAt?.[room.id] || 0;
   const validMsgs = (room.messages||[]).filter(filterSystemMsg);
-  const otherMsgs = validMsgs.filter(m => m.uid !== db.user?.id);
-  if(otherMsgs.length) return otherMsgs.filter(m => Number(m.time)>readTime).length;
-  const last = room.lastMessage && filterSystemMsg(room.lastMessage) ? room.lastMessage : null;
-  if(last && last.uid !== db.user?.id) return Number(last.time)>readTime ? 1 : 0;
-  return 0;
+  return validMsgs.filter(m =>
+    m.uid !== db.user?.id && Number(m.time) > readTime
+  ).length;
 }
 
 function markRoomRead(id){db.readAt=db.readAt||{};db.readAt[id]=now();save()}
@@ -294,7 +294,7 @@ async function initBackend(){
       lastStableAuthAt=Date.now();
       connectionGeneration++;
       backendRetryMs=1000; backendLastError='';
-      db.user=db.user||{id:au.id,ship:'全体シップ',charName:'',displayName:'',anonymous:true};
+      db.user=db.user||{id:au.id,ship:'全体シップ',displayName:'',anonymous:true};
       db.user.id=au.id; save();
       if(!authListenerBound){
         authListenerBound=true;
@@ -312,7 +312,7 @@ async function initBackend(){
             lastStableAuthAt=Date.now();
             const changed=db.user?.id!==session.user.id;
             authReady=true;
-            db.user=db.user||{id:session.user.id,ship:'全体シップ',charName:'',displayName:'',anonymous:true};
+            db.user=db.user||{id:session.user.id,ship:'全体シップ',displayName:'',anonymous:true};
             db.user.id=session.user.id;
             save();
             if(changed)requestBackendRefresh(false);
@@ -358,8 +358,8 @@ function ensureBackendPoller(){
   },15000);
 }
 
-async function syncProfileFromBackend(){if(!sb||!authReady||!db.user)return;let {data,error}=await sb.from('profiles').select('id,ship,character_name,display_name,anonymous').eq('id',db.user.id).maybeSingle();if(error)throw error;if(data){db.user={...db.user,ship:normalizeShipForDisplay(data.ship),charName:data.character_name,displayName:data.display_name,anonymous:data.anonymous};save();renderProfile();return}if(!(await persistProfileBackend()))throw new Error('PROFILE_CREATE_FAILED')}
-async function persistProfileBackend(){if(!sb||!authReady||!db.user)return true;let device=localStorage.getItem('ngs_device_id')||crypto.randomUUID();localStorage.setItem('ngs_device_id',device);let {error}=await sb.from('profiles').upsert({id:db.user.id,device_id:device,ship:normalizeShipForBackend(db.user.ship),character_name:db.user.charName,display_name:db.user.displayName||db.user.charName,anonymous:!!db.user.anonymous,updated_at:new Date().toISOString()},{onConflict:'id'});if(error){toast(apiError(error));return false}return true}
+async function syncProfileFromBackend(){if(!sb||!authReady||!db.user)return;let {data,error}=await sb.from('profiles').select('id,ship,display_name,anonymous').eq('id',db.user.id).maybeSingle();if(error)throw error;if(data){db.user={...db.user,ship:normalizeShipForDisplay(data.ship),displayName:data.display_name,anonymous:data.anonymous};save();renderProfile();return}if(!(await persistProfileBackend()))throw new Error('PROFILE_CREATE_FAILED')}
+async function persistProfileBackend(){if(!sb||!authReady||!db.user)return true;let device=localStorage.getItem('ngs_device_id')||crypto.randomUUID();localStorage.setItem('ngs_device_id',device);let {error}=await sb.from('profiles').upsert({id:db.user.id,device_id:device,ship:normalizeShipForBackend(db.user.ship),display_name:db.user.displayName,anonymous:!!db.user.anonymous,updated_at:new Date().toISOString()},{onConflict:'id'});if(error){toast(apiError(error));return false}return true}
 async function loadBackendState(){
   if(!sb||!authReady)throw new Error('BACKEND_NOT_READY');
   if(loadInFlight){loadQueued=true;return false}
@@ -531,12 +531,12 @@ function ensureUser(){if(db.user?.id)return true;openProfile();return false}
 function openModal(html){document.getElementById('dialog').innerHTML=html;document.getElementById('modal').classList.add('open')}
 function closeModal(){document.getElementById('modal').classList.remove('open')}
 document.getElementById('modal').onclick=e=>{if(e.target.id==='modal')closeModal()}
-function openProfile(){openModal(`<h2>プロフィール設定</h2><div class="notice">入力は任意です。表示名・キャラクター名を空欄のまま保存した場合は自動的に匿名表示になります。匿名設定では公開名を匿名表示します。</div><div class="formgrid"><div class="field"><label>所属Ship</label><select id="fShip"><option>全体シップ</option>${[1,2,3,4,5,6,7,8,9,10].map(n=>`<option>Ship ${n}</option>`).join('')}</select></div><div class="field"><label>キャラクター名（任意）</label><input id="fChar" maxlength="24" placeholder="未入力でも利用できます"></div><div class="field"><label>表示名（任意）</label><input id="fDisplay" maxlength="24" placeholder="未入力でも利用できます"></div><div class="field" style="align-content:end"><label><input id="fAnon" type="checkbox"> 表示名・キャラクター名を匿名表示する</label></div></div><div class="dialog-actions"><button class="btn" onclick="closeModal()">キャンセル</button><button class="btn primary" onclick="saveProfile()">保存</button></div>`);if(db.user){fShip.value=db.user.ship||'全体シップ';fChar.value=db.user.charName||'';fDisplay.value=db.user.displayName||'';fAnon.checked=!!db.user.anonymous}}
+function openProfile(){openModal(`<h2>プロフィール設定</h2><div class="notice">入力は任意です。表示名を空欄のまま保存した場合は自動的に匿名表示になります。匿名設定では公開名を匿名表示します。</div><div class="formgrid"><div class="field"><label>所属Ship</label><select id="fShip"><option>全体シップ</option>${[1,2,3,4,5,6,7,8,9,10].map(n=>`<option>Ship ${n}</option>`).join('')}</select></div><div class="field"><label>表示名（任意）</label><input id="fDisplay" maxlength="24" placeholder="未入力でも利用できます"></div><div class="field" style="align-content:end"><label><input id="fAnon" type="checkbox"> 表示名を匿名表示する</label></div></div><div class="dialog-actions"><button class="btn" onclick="closeModal()">キャンセル</button><button class="btn primary" onclick="saveProfile()">保存</button></div>`);if(db.user){fShip.value=db.user.ship||'全体シップ';fDisplay.value=db.user.displayName||'';fAnon.checked=!!db.user.anonymous}}
 async function saveProfile(){
-  let ship=fShip.value,charName=fChar.value.trim(),displayName=fDisplay.value.trim(),anonymous=fAnon.checked||(!charName&&!displayName);if(!ship){toast('Shipを選択してください');return}
-  if(charName.length>24||displayName.length>24){toast('名前は24文字以内です');return}
-  db.user={id:db.user?.id||uid(),ship,charName,displayName,anonymous};save();if(backendConfigured()){if(!requireBackend())return;if(!(await persistProfileBackend()))return}closeModal();renderProfile();render();toast(anonymous?'プロフィールを保存しました（匿名表示）':'プロフィールを保存しました')}
-function renderProfile(){if(!db.user)return;pName.textContent=(db.user.anonymous||(!db.user.displayName&&!db.user.charName))?'匿名プレイヤー':(db.user.displayName||db.user.charName);pChar.textContent=db.user.charName||'未設定';pShip.textContent=db.user.ship;pId.textContent=db.user.id;pBlocked.textContent=db.blocked.length}
+  let ship=fShip.value,displayName=fDisplay.value.trim(),anonymous=fAnon.checked||!displayName;if(!ship){toast('Shipを選択してください');return}
+  if(displayName.length>24){toast('表示名は24文字以内です');return}
+  db.user={id:db.user?.id||uid(),ship,displayName,anonymous};save();if(backendConfigured()){if(!requireBackend())return;if(!(await persistProfileBackend()))return}closeModal();renderProfile();render();toast(anonymous?'プロフィールを保存しました（匿名表示）':'プロフィールを保存しました')}
+function renderProfile(){if(!db.user)return;pName.textContent=(db.user.anonymous||!db.user.displayName)?'匿名プレイヤー':db.user.displayName;pShip.textContent=db.user.ship;pId.textContent=db.user.id;pBlocked.textContent=db.blocked.length}
 
 function restoreLastSettings(){
   let last=db.lastRecruitment;
@@ -880,7 +880,7 @@ async function openRoom(id,opts={}){
   let previousHeight=opts.preserveScroll?document.getElementById('msgs')?.scrollHeight||0:0,previousTop=opts.preserveScroll?document.getElementById('msgs')?.scrollTop||0:0;let memberIds=room.membersSnapshot?.length?room.membersSnapshot:(room.participants?.length?room.participants:(roomInfo(room).members||[]));let activeIds=room.activeIds?.length?room.activeIds:Object.keys(room.ready||{});let pendingIds=room.pendingIds||[];let isActive=activeIds.includes(db.user.id);let isPending=pendingIds.includes(db.user.id);if(sb&&authReady&&!room.messagesLoaded&&!isPending){let q=await sb.rpc('list_room_messages',{p_limit:100,p_room:id});if(q.error){toast(apiError(q.error));return}let rows=q.data||[];room.messages=normalizeRoomMessages(rows);room.messageHasMore=rows.length>=100;room.messageOldestId=room.messages[0]?.serverId||null;room.messagesLoaded=true;room.unreadCount=0;save()}markRoomRead(id);let r=roomInfo(room);let names={};if(sb&&authReady&&memberIds.length){let q=await sb.rpc('list_room_participants',{p_room:id});if(!q.error)for(const x of q.data||[])names[x.user_id]=x.display_name}chatList.style.display='none';chatRoom.style.display='block';chatRoom.dataset.openRoom=id;let allReady=!room.closed&&activeIds.length>0&&activeIds.every(m=>room.ready[m]);let activeSet=new Set(activeIds);let memberLabels=memberIds.filter(m=>room.closed?true:activeSet.has(m)).map(m=>{let label=m===r.hostId?'募集主':'匿名プレイヤー';let menu=m!==db.user.id?` <button class="mini" onclick="event.stopPropagation();openUserActions('${m}','${room.id}','${room.recruitmentId}')">⋯</button>`:'';return `<span class="badge">${m===r.hostId?'👑 ':''}${esc(label)}${!room.closed&&room.ready[m]?' ✓':''}${menu}</span>`}).join('');let pendingLabels=pendingIds.map(m=>`<span class="badge hot">⏳ ${esc('匿名プレイヤー')}</span>`).join('');let status=room.closed?'この募集は閉じられています。チャット履歴は閲覧できます。':isPending?'参加申請を送信済みです。募集主の承認待ちです。':(!isActive?'このパーティーから退出済みです。チャット履歴を閲覧できます。':((r.hostId===db.user.id&&pendingIds.length)?`参加申請が${pendingIds.length}件あります。チャット内で承認・拒否できます。`:(allReady?'全員準備OK。出発できます。':'準備OKを押して出発準備を確認。')));let approvalActions=(r.hostId===db.user.id&&pendingIds.length&&!room.closed)?`<div class="notice">🔔 参加申請</div>${pendingIds.map(m=>`<div class="room"><div><strong>${esc('匿名プレイヤー')}</strong><small>${esc(m.slice(0,8))}</small></div><div class="actions"><button class="btn primary" onclick="approveRequest('${room.recruitmentId}','${m}')">承認</button><button class="btn danger" onclick="rejectRequest('${room.recruitmentId}','${m}')">拒否</button></div></div>`).join('')}`:'';
 
 // 修正：募集が一覧に存在する場合（isRecruitmentActive(room.recruitmentId) === true）のみ「募集を閉じる」ボタンを表示。
-// 不要な「参加者はこの画面から退出操作を行いません。」メッセージを削除。
+// 不要な「」メッセージを削除。
 let recActive = isRecruitmentActive(room.recruitmentId);
 let actions=room.closed?`<div class="notice">${status}</div>`:isPending?`<div class="notice">${status}</div>`:(!isActive?`<div class="notice">${status}</div>`:(r.hostId===db.user.id&&memberIds.includes(db.user.id)?`${approvalActions}${recActive?`<div class="room-actions"><button class="btn danger" onclick="disbandRoom('${room.id}')">募集を閉じる</button></div>`:''}`:''));
 
