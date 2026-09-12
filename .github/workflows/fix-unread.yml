@@ -1,0 +1,45 @@
+name: fix-unread-once
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch unread calculation
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p = Path('募集掲示板/index.html')
+          s = p.read_text(encoding='utf-8')
+          old = re.compile(r"function unreadCount\(room\)\{.*?\n\}\n\nfunction markRoomRead", re.S)
+          new = '''function unreadCount(room){
+            // 承認待ち・未読み込み状態では、未確認の「最後のメッセージ」を
+            // 未読1件として推測しない。実際に取得できた通常チャットだけを数える。
+            if((room.pendingIds||[]).includes(db.user?.id)) return 0;
+            if(!room.messagesLoaded) return 0;
+            const readTime = db.readAt?.[room.id] || 0;
+            const validMsgs = (room.messages||[]).filter(filterSystemMsg);
+            return validMsgs.filter(m =>
+              m.uid !== db.user?.id && Number(m.time) > readTime
+            ).length;
+          }
+
+          function markRoomRead'''
+          ns, n = old.subn(new, s, count=1)
+          if n != 1:
+              raise SystemExit('unreadCount target not found; refusing to modify')
+          p.write_text(ns, encoding='utf-8')
+          PY
+      - name: Commit patch and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/fix-unread.yml
+          git add '募集掲示板/index.html'
+          git commit -m "Fix false unread count in recruitment chats"
+          git push
